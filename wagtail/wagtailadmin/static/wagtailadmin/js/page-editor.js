@@ -260,11 +260,6 @@ function initSlugAutoPopulate(){
     });
 }
 
-function initSlugCleaning(){
-    $('#id_slug').on('keyup blur', function(){
-        $(this).val(cleanForSlug($(this).val()));
-    });
-}
 
 function initErrorDetection(){
     var errorSections = {};
@@ -290,7 +285,6 @@ $(function() {
     initDateChoosers();
     initTimeChoosers();
     initSlugAutoPopulate();
-    initSlugCleaning();
     initErrorDetection();
 
     $('.richtext [contenteditable="false"]').each(function() {
