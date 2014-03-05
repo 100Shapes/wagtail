@@ -52,10 +52,9 @@ allow_without_attributes = attribute_rule({})
 class Whitelister(object):
     element_rules = {
         '[document]': allow_without_attributes,
-        'a': attribute_rule({'href': check_url}),
+        'a': attribute_rule({'href': check_url, 'class': True}),
         'b': allow_without_attributes,
         'br': allow_without_attributes,
-        'div': allow_without_attributes,
         'em': allow_without_attributes,
         'h1': allow_without_attributes,
         'h2': allow_without_attributes,
@@ -73,6 +72,12 @@ class Whitelister(object):
         'sub': allow_without_attributes,
         'sup': allow_without_attributes,
         'ul': allow_without_attributes,
+        'blockquote': allow_without_attributes,
+        'footer': allow_without_attributes,
+        'header': allow_without_attributes,
+        'cite': allow_without_attributes,
+        'div': attribute_rule({'class': True }),
+        'span': attribute_rule({'class': True }),
     }
 
     @classmethod
