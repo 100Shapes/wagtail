@@ -21,14 +21,15 @@ function makeRichTextEditable(id) {
         toolbarcssClass: 'testy',
         plugins: {
             'halloformat': {},
-            'halloheadings': {formatBlocks: ["p", "h2", "h3", "h4", "h5"]},
+            'halloheadings': {formatBlocks: ["p", "h2", "h3"]},
             'hallolists': {}, 
-            'hallohr': {},
+            // 'hallohr': {},
             'halloreundo': {},
             'hallowagtailimage': {},
             'hallowagtailembeds': {},
             'hallowagtaillink': {},
             'hallowagtaildoclink': {},
+            'hallohtml': {},
         }
     }).bind('hallomodified', function(event, data) {
         input.val(data.content);
@@ -286,7 +287,7 @@ $(function() {
     initTimeChoosers();
     initSlugAutoPopulate();
     initErrorDetection();
-
+    
     $('.richtext [contenteditable="false"]').each(function() {
         insertRichTextDeleteControl(this);
     });
