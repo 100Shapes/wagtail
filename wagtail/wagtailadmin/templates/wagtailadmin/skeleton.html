@@ -26,6 +26,8 @@
 
         {% block extra_css %}{% endblock %}
     {% endblock %}
+
+    {% block extra_head %}{% endblock extra_head %}
 </head>
 <body class="{% block bodyclass %}{% endblock %} {% if messages %}has-messages{% endif %}">
     <!--[if lt IE 9]>
