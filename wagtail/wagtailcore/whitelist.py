@@ -78,7 +78,8 @@ class Whitelister(object):
         'cite': allow_without_attributes,
         'div': attribute_rule({'class': True }),
         'figure': attribute_rule({'class': True }),
-        'figcaption': allow_without_attributes
+        'figcaption': allow_without_attributes,
+        'address': allow_without_attributes
     }
 
     @classmethod
