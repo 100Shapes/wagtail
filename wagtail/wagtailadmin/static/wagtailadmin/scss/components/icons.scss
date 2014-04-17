@@ -193,14 +193,14 @@
 .icon-download:before{
     content:"S";
 }
-.icon-home:before{
-    content:"W";
-}
 .icon-order:before{
     content:"T";
 }
 .icon-grip:before{
     content:"U";
+}
+.icon-home:before{
+    content:"W";
 }
 .icon-order-down:before{
     content:"X";
@@ -218,18 +218,36 @@
     -moz-animation: spin 1s infinite;
     content:"1";
 }
+.icon-pick:before{
+    content:"2";
+}
 .icon-redirect:before{
     content:"3";
 }
-.icon-pick:before{
-    content:"2";
+.icon-view:before{
+    content:"4";
+}
+.icon-collapse-down:before{
+    content:"5";
+}
+.icon-collapse-up:before{
+    content:"6";
+}
+.icon-help:before{
+    content:"?";
+}
+.icon-warning:before{
+    content:"!";
+}
+.icon-success:before{
+    content:"9";
 }
 
 .icon.text-replace{
     font-size:0em;
     line-height:0;
     overflow:hidden;
-    
+
     &:before{
         margin-right:0;
         font-size:1rem;

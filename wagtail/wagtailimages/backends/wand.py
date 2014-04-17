@@ -1,7 +1,5 @@
 from __future__ import absolute_import
 
-from django.db import models
-from django.conf import settings
 from .base import BaseImageBackend
 
 from wand.image import Image
@@ -9,19 +7,19 @@ from wand.image import Image
 class WandBackend(BaseImageBackend):
     def __init__(self, params):
         super(WandBackend, self).__init__(params)
-        
+
     def open_image(self, input_file):
         image = Image(file=input_file)
         return image
-        
+
     def save_image(self, image, output, format):
         image.format = format
+        image.compression_quality = self.quality
         image.save(file=output)
-        
+
     def resize(self, image, size):
         image.resize(size[0], size[1])
         return image
-        
 
     def crop_to_centre(self, image, size):
         (original_width, original_height) = image.size
@@ -38,5 +36,5 @@ class WandBackend(BaseImageBackend):
         top = (original_height - final_height) / 2
         image.crop(
             left=left, top=top, right=left + final_width, bottom=top + final_height
-		)
+        )
         return image

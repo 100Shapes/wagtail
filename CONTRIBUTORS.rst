@@ -22,6 +22,8 @@ Contributors
 * Stephen Newey
 * Ryan Foster
 * v1kku
+* Miguel Vieira
+* Ben Emery
 
 Translators
 ===========
@@ -36,5 +38,6 @@ Translators
 * Greek: Serafeim Papastefanos
 * Mongolian: Delgermurun Purevkhuu
 * Polish: Łukasz Bołdys
+* Portuguese Brazil: Gilson Filho
 * Romanian: Dan Braghis
 * Spanish: Unai Zalakain, fooflare

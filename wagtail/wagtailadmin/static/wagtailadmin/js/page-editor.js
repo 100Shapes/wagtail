@@ -22,14 +22,14 @@ function makeRichTextEditable(id) {
         plugins: {
             'halloformat': {},
             'halloheadings': {formatBlocks: ["p", "h2", "h3"]},
-            'hallolists': {}, 
+            'hallolists': {},
             // 'hallohr': {},
             'halloreundo': {},
             'hallowagtailimage': {},
             'hallowagtailembeds': {},
             'hallowagtaillink': {},
             'hallowagtaildoclink': {},
-            'hallohtml': {},
+            'hallohtml': {}
         }
     }).bind('hallomodified', function(event, data) {
         input.val(data.content);
@@ -56,8 +56,8 @@ function initDateChoosers(context) {
     $('input.friendly_date', context).datepicker({
         dateFormat: 'd M yy', constrainInput: false, /* showOn: 'button', */ firstDay: 1
     });
-    
-    if(window.overrideDateInputFormat && window.overrideDateInputFormat !='') {
+
+    if(window.overrideDateInputFormat && window.overrideDateInputFormat !== '') {
         $('input.localized_date', context).datepicker({
             dateFormat: window.overrideDateInputFormat, constrainInput: false, /* showOn: 'button', */ firstDay: 1
         });
@@ -66,7 +66,7 @@ function initDateChoosers(context) {
             constrainInput: false, /* showOn: 'button', */ firstDay: 1
         });
     }
-    
+
 }
 function initFriendlyDateChooser(id) {
     $('#' + id).datepicker({
@@ -74,7 +74,7 @@ function initFriendlyDateChooser(id) {
     });
 }
 function initLocalizedDateChooser(id) {
-    if(window.overrideDateInputFormat && window.overrideDateInputFormat !='') {
+    if(window.overrideDateInputFormat && window.overrideDateInputFormat !== '') {
         $('#' + id).datepicker({
             dateFormat: window.overrideDateInputFormat, constrainInput: false, /* showOn: 'button', */ firstDay: 1
         });
@@ -83,7 +83,7 @@ function initLocalizedDateChooser(id) {
             constrainInput: false, /* showOn: 'button', */ firstDay: 1
         });
     }
-    
+
 }
 
 function initTimeChoosers(context) {
@@ -135,7 +135,7 @@ function InlinePanel(opts) {
             $('#' + childId).slideUp(function() {
                 self.updateMoveButtonDisabledStates();
                 self.setHasContent();
-            });            
+            });
         });
         if (opts.canOrder) {
             $('#' + prefix + '-move-up').click(function() {
@@ -232,7 +232,7 @@ function InlinePanel(opts) {
                 $(fixPrefix('#id_' + opts.emptyChildFormPrefix + '-ORDER')).val(formCount);
             }
             self.updateMoveButtonDisabledStates();
-            
+
             opts.onAdd(fixPrefix);
         }
     });
@@ -240,8 +240,8 @@ function InlinePanel(opts) {
     return self;
 }
 
-function cleanForSlug(val){
-    if(URLify != undefined) { // Check to be sure that URLify function exists
+function cleanForSlug(val, useURLify){
+    if(URLify != undefined && useURLify !== false) { // Check to be sure that URLify function exists, and that we want to use it.
         return URLify(val, val.length);
     } else { // If not just do the "replace"
         return val.replace(/\s/g,"-").replace(/[^A-Za-z0-9\-]/g,"").toLowerCase();
@@ -262,6 +262,13 @@ function initSlugAutoPopulate(){
 }
 
 
+function initSlugCleaning(){
+    $('#id_slug').blur(function(){
+        // if a user has just set the slug themselves, don't remove stop words etc, just illegal characters
+        $(this).val(cleanForSlug($(this).val(), false));
+    });
+}
+
 function initErrorDetection(){
     var errorSections = {};
 
@@ -279,7 +286,26 @@ function initErrorDetection(){
     // now identify them on each tab
     for(var index in errorSections) {
         $('.tab-nav a[href=#'+ index +']').addClass('errors').attr('data-count', errorSections[index]);
-    }    
+    }
+}
+
+function initCollapsibleBlocks(){
+    $(".object.multi-field.collapsible").each(function(){
+        var $li = $(this);
+        var $fieldset = $li.find("fieldset");
+        if($li.hasClass("collapsed")){
+            $fieldset.hide();
+        }
+        $li.find("h2").click(function(){
+            if(!$li.hasClass("collapsed")){
+                $li.addClass("collapsed");
+                $fieldset.hide("slow");
+            }else{
+                $li.removeClass("collapsed");
+                $fieldset.show("show");
+            }
+        });
+    });
 }
 
 $(function() {
@@ -287,7 +313,8 @@ $(function() {
     initTimeChoosers();
     initSlugAutoPopulate();
     initErrorDetection();
-    
+    initCollapsibleBlocks();
+
     $('.richtext [contenteditable="false"]').each(function() {
         insertRichTextDeleteControl(this);
     });
