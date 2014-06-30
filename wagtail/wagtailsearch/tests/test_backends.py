@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.test.utils import override_settings
 from django.conf import settings
 from django.core import management
-import unittest
+from wagtail.tests.utils import unittest
 from wagtail.wagtailsearch import models, get_search_backend
 from wagtail.wagtailsearch.backends.db import DBSearch
 from wagtail.wagtailsearch.backends import InvalidSearchBackendError
@@ -159,6 +159,15 @@ class TestDBBackend(BackendTests, TestCase):
 
 class TestElasticSearchBackend(BackendTests, TestCase):
     backend_path = 'wagtail.wagtailsearch.backends.elasticsearch.ElasticSearch'
+
+    def test_search_with_spaces_only(self):
+        # Search for some space characters and hope it doesn't crash
+        results = self.backend.search("   ", models.SearchTest)
+
+        # Queries are lazily evaluated, force it to run
+        list(results)
+
+        # Didn't crash, yay!
 
 
 @override_settings(WAGTAILSEARCH_BACKENDS={

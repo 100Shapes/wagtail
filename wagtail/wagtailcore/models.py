@@ -1,5 +1,6 @@
-import sys
-import os
+from StringIO import StringIO
+from urlparse import urlparse
+import warnings
 
 from modelcluster.models import ClusterableModel
 
@@ -7,24 +8,21 @@ from django.db import models, connection, transaction
 from django.db.models import get_model, Q
 from django.http import Http404
 from django.core.cache import cache
+from django.core.handlers.wsgi import WSGIRequest
+from django.core.handlers.base import BaseHandler
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import Group
 from django.conf import settings
 from django.template.response import TemplateResponse
 from django.utils.translation import ugettext_lazy as _
+from django.utils.functional import cached_property
 
-from wagtail.wagtailcore.util import camelcase_to_underscore
+from treebeard.mp_tree import MP_Node
+
+from wagtail.wagtailcore.utils import camelcase_to_underscore
 from wagtail.wagtailcore.query import PageQuerySet
 
 from wagtail.wagtailsearch import Indexed, get_search_backend
-
-
-# hack to import our patched copy of treebeard at wagtail/vendor/django-treebeard -
-# based on http://stackoverflow.com/questions/17211078/how-to-temporarily-modify-sys-path-in-python
-treebeard_path = os.path.join(os.path.dirname(__file__), '..', 'vendor', 'django-treebeard')
-sys.path.insert(0, treebeard_path)
-from treebeard.mp_tree import MP_Node
-sys.path.pop(0)
 
 
 class SiteManager(models.Manager):
@@ -103,83 +101,88 @@ def get_page_types():
     return _PAGE_CONTENT_TYPES
 
 
-LEAF_PAGE_MODEL_CLASSES = []
-_LEAF_PAGE_CONTENT_TYPE_IDS = []
-
-
 def get_leaf_page_content_type_ids():
-    global _LEAF_PAGE_CONTENT_TYPE_IDS
-    if len(_LEAF_PAGE_CONTENT_TYPE_IDS) != len(LEAF_PAGE_MODEL_CLASSES):
-        _LEAF_PAGE_CONTENT_TYPE_IDS = [
-            ContentType.objects.get_for_model(cls).id for cls in LEAF_PAGE_MODEL_CLASSES
-        ]
-    return _LEAF_PAGE_CONTENT_TYPE_IDS
-
-
-NAVIGABLE_PAGE_MODEL_CLASSES = []
-_NAVIGABLE_PAGE_CONTENT_TYPE_IDS = []
-
+    warnings.warn("""
+        get_leaf_page_content_type_ids is deprecated, as it treats pages without an explicit subpage_types
+        setting as 'leaf' pages. Code that calls get_leaf_page_content_type_ids must be rewritten to avoid
+        this incorrect assumption.
+    """, DeprecationWarning)
+    return [
+        content_type.id
+        for content_type in get_page_types()
+        if not getattr(content_type.model_class(), 'subpage_types', None)
+    ]
 
 def get_navigable_page_content_type_ids():
-    global _NAVIGABLE_PAGE_CONTENT_TYPE_IDS
-    if len(_NAVIGABLE_PAGE_CONTENT_TYPE_IDS) != len(NAVIGABLE_PAGE_MODEL_CLASSES):
-        _NAVIGABLE_PAGE_CONTENT_TYPE_IDS = [
-            ContentType.objects.get_for_model(cls).id for cls in NAVIGABLE_PAGE_MODEL_CLASSES
-        ]
-    return _NAVIGABLE_PAGE_CONTENT_TYPE_IDS
+    warnings.warn("""
+        get_navigable_page_content_type_ids is deprecated, as it treats pages without an explicit subpage_types
+        setting as 'leaf' pages. Code that calls get_navigable_page_content_type_ids must be rewritten to avoid
+        this incorrect assumption.
+    """, DeprecationWarning)
+    return [
+        content_type.id
+        for content_type in get_page_types()
+        if getattr(content_type.model_class(), 'subpage_types', None)
+    ]
 
 
 class PageManager(models.Manager):
-    def get_query_set(self):
+    def get_queryset(self):
         return PageQuerySet(self.model).order_by('path')
 
     def live(self):
-        return self.get_query_set().live()
+        return self.get_queryset().live()
 
     def not_live(self):
-        return self.get_query_set().not_live()
+        return self.get_queryset().not_live()
+
+    def in_menu(self):
+        return self.get_queryset().in_menu()
+
+    def not_in_menu(self):
+        return self.get_queryset().not_in_menu()
 
     def page(self, other):
-        return self.get_query_set().page(other)
+        return self.get_queryset().page(other)
 
     def not_page(self, other):
-        return self.get_query_set().not_page(other)
+        return self.get_queryset().not_page(other)
 
     def descendant_of(self, other, inclusive=False):
-        return self.get_query_set().descendant_of(other, inclusive)
+        return self.get_queryset().descendant_of(other, inclusive)
 
     def not_descendant_of(self, other, inclusive=False):
-        return self.get_query_set().not_descendant_of(other, inclusive)
+        return self.get_queryset().not_descendant_of(other, inclusive)
 
     def child_of(self, other):
-        return self.get_query_set().child_of(other)
+        return self.get_queryset().child_of(other)
 
     def not_child_of(self, other):
-        return self.get_query_set().not_child_of(other)
+        return self.get_queryset().not_child_of(other)
 
     def ancestor_of(self, other, inclusive=False):
-        return self.get_query_set().ancestor_of(other, inclusive)
+        return self.get_queryset().ancestor_of(other, inclusive)
 
     def not_ancestor_of(self, other, inclusive=False):
-        return self.get_query_set().not_ancestor_of(other, inclusive)
+        return self.get_queryset().not_ancestor_of(other, inclusive)
 
     def parent_of(self, other):
-        return self.get_query_set().parent_of(other)
+        return self.get_queryset().parent_of(other)
 
     def not_parent_of(self, other):
-        return self.get_query_set().not_parent_of(other)
+        return self.get_queryset().not_parent_of(other)
 
     def sibling_of(self, other, inclusive=False):
-        return self.get_query_set().sibling_of(other, inclusive)
+        return self.get_queryset().sibling_of(other, inclusive)
 
     def not_sibling_of(self, other, inclusive=False):
-        return self.get_query_set().not_sibling_of(other, inclusive)
+        return self.get_queryset().not_sibling_of(other, inclusive)
 
     def type(self, model):
-        return self.get_query_set().type(model)
+        return self.get_queryset().type(model)
 
     def not_type(self, model):
-        return self.get_query_set().not_type(model)
+        return self.get_queryset().not_type(model)
 
 
 class PageBase(models.base.ModelBase):
@@ -211,10 +214,6 @@ class PageBase(models.base.ModelBase):
         if not cls.is_abstract:
             # register this type in the list of page content types
             PAGE_MODEL_CLASSES.append(cls)
-        if cls.subpage_types:
-            NAVIGABLE_PAGE_MODEL_CLASSES.append(cls)
-        else:
-            LEAF_PAGE_MODEL_CLASSES.append(cls)
 
 
 class Page(MP_Node, ClusterableModel, Indexed):
@@ -261,9 +260,6 @@ class Page(MP_Node, ClusterableModel, Indexed):
     def __unicode__(self):
         return self.title
 
-    # by default pages do not allow any kind of subpages
-    subpage_types = []
-
     is_abstract = True  # don't offer Page in the list of page types a superuser can create
 
     def set_url_path(self, parent):
@@ -281,7 +277,7 @@ class Page(MP_Node, ClusterableModel, Indexed):
 
         return self.url_path
 
-    @transaction.commit_on_success  # ensure that changes are only committed when we have updated all descendant URL paths, to preserve consistency
+    @transaction.atomic  # ensure that changes are only committed when we have updated all descendant URL paths, to preserve consistency
     def save(self, *args, **kwargs):
         update_descendant_url_paths = False
 
@@ -304,6 +300,11 @@ class Page(MP_Node, ClusterableModel, Indexed):
 
         if update_descendant_url_paths:
             self._update_descendant_url_paths(old_url_path, new_url_path)
+
+        # Check if this is a root page of any sites and clear the 'wagtail_site_root_paths' key if so
+        if Site.objects.filter(root_page=self).exists():
+            cache.delete('wagtail_site_root_paths')
+
         return result
 
     def _update_descendant_url_paths(self, old_url_path, new_url_path):
@@ -312,6 +313,12 @@ class Page(MP_Node, ClusterableModel, Indexed):
             update_statement = """
                 UPDATE wagtailcore_page
                 SET url_path = %s || substr(url_path, %s)
+                WHERE path LIKE %s AND id <> %s
+            """
+        elif connection.vendor == 'mysql':
+            update_statement = """
+                UPDATE wagtailcore_page
+                SET url_path= CONCAT(%s, substring(url_path, %s))
                 WHERE path LIKE %s AND id <> %s
             """
         else:
@@ -323,7 +330,7 @@ class Page(MP_Node, ClusterableModel, Indexed):
         cursor.execute(update_statement, 
             [new_url_path, len(old_url_path) + 1, self.path + '%', self.id])
 
-    @property
+    @cached_property
     def specific(self):
         """
             Return this page in its most specific subclassed form.
@@ -337,7 +344,7 @@ class Page(MP_Node, ClusterableModel, Indexed):
         else:
             return content_type.get_object_for_this_type(id=self.id)
 
-    @property
+    @cached_property
     def specific_class(self):
         """
             return the class that this page would be if instantiated in its
@@ -367,52 +374,51 @@ class Page(MP_Node, ClusterableModel, Indexed):
                 raise Http404
 
     def save_revision(self, user=None, submitted_for_moderation=False):
-        self.revisions.create(content_json=self.to_json(), user=user, submitted_for_moderation=submitted_for_moderation)
+        return self.revisions.create(content_json=self.to_json(), user=user, submitted_for_moderation=submitted_for_moderation)
 
     def get_latest_revision(self):
-        try:
-            revision = self.revisions.order_by('-created_at')[0]
-        except IndexError:
-            return False
-
-        return revision
+        return self.revisions.order_by('-created_at').first()
 
     def get_latest_revision_as_page(self):
-        try:
-            revision = self.revisions.order_by('-created_at')[0]
-        except IndexError:
+        latest_revision = self.get_latest_revision()
+
+        if latest_revision:
+            return latest_revision.as_page_object()
+        else:
             return self.specific
 
-        return revision.as_page_object()
-
-    def get_context(self, request):
+    def get_context(self, request, *args, **kwargs):
         return {
             'self': self,
             'request': request,
         }
 
-    def get_template(self, request):
+    def get_template(self, request, *args, **kwargs):
         if request.is_ajax():
             return self.ajax_template or self.template
         else:
             return self.template
 
-    def serve(self, request):
+    def serve(self, request, *args, **kwargs):
         return TemplateResponse(
             request, 
-            self.get_template(request), 
-            self.get_context(request)
+            self.get_template(request, *args, **kwargs), 
+            self.get_context(request, *args, **kwargs)
         )
 
     def is_navigable(self):
         """
         Return true if it's meaningful to browse subpages of this page -
-        i.e. it currently has subpages, or its page type indicates that sub-pages are supported,
+        i.e. it currently has subpages,
         or it's at the top level (this rule necessary for empty out-of-the-box sites to have working navigation)
         """
-        return (not self.is_leaf()) or (self.content_type_id not in get_leaf_page_content_type_ids()) or self.depth == 2
+        return (not self.is_leaf()) or self.depth == 2
 
     def get_other_siblings(self):
+        warnings.warn(
+            "The 'Page.get_other_siblings()' method has been replaced. "
+            "Use 'Page.get_siblings(inclusive=False)' instead.", DeprecationWarning)
+
         # get sibling pages excluding self
         return self.get_siblings().exclude(id=self.id)
 
@@ -475,25 +481,30 @@ class Page(MP_Node, ClusterableModel, Indexed):
             where required
         """
         if cls._clean_subpage_types is None:
-            res = []
-            for page_type in cls.subpage_types:
-                if isinstance(page_type, basestring):
-                    try:
-                        app_label, model_name = page_type.split(".")
-                    except ValueError:
-                        # If we can't split, assume a model in current app
-                        app_label = cls._meta.app_label
-                        model_name = page_type
+            subpage_types = getattr(cls, 'subpage_types', None)
+            if subpage_types is None:
+                # if subpage_types is not specified on the Page class, allow all page types as subpages
+                res = get_page_types()
+            else:
+                res = []
+                for page_type in cls.subpage_types:
+                    if isinstance(page_type, basestring):
+                        try:
+                            app_label, model_name = page_type.split(".")
+                        except ValueError:
+                            # If we can't split, assume a model in current app
+                            app_label = cls._meta.app_label
+                            model_name = page_type
 
-                    model = get_model(app_label, model_name)
-                    if model:
-                        res.append(model)
+                        model = get_model(app_label, model_name)
+                        if model:
+                            res.append(ContentType.objects.get_for_model(model))
+                        else:
+                            raise NameError(_("name '{0}' (used in subpage_types list) is not defined.").format(page_type))
+
                     else:
-                        raise NameError(_("name '{0}' (used in subpage_types list) is not defined.").format(page_type))
-
-                else:
-                    # assume it's already a model class
-                    res.append(page_type)
+                        # assume it's already a model class
+                        res.append(ContentType.objects.get_for_model(page_type))
 
             cls._clean_subpage_types = res
 
@@ -537,7 +548,7 @@ class Page(MP_Node, ClusterableModel, Indexed):
         """
         return (not self.live) and (not self.get_descendants().filter(live=True).exists())
 
-    @transaction.commit_on_success  # only commit when all descendants are properly updated
+    @transaction.atomic  # only commit when all descendants are properly updated
     def move(self, target, pos=None):
         """
         Extension to the treebeard 'move' method to ensure that url_path is updated too.
@@ -558,6 +569,79 @@ class Page(MP_Node, ClusterableModel, Indexed):
         user_perms = UserPagePermissionsProxy(user)
         return user_perms.for_page(self)
 
+    def dummy_request(self):
+        """
+        Construct a HttpRequest object that is, as far as possible, representative of ones that would
+        receive this page as a response. Used for previewing / moderation and any other place where we
+        want to display a view of this page in the admin interface without going through the regular
+        page routing logic.
+        """
+        url = self.full_url
+        if url:
+            url_info = urlparse(url)
+            hostname = url_info.hostname
+            path = url_info.path
+            port = url_info.port or 80
+        else:
+            # Cannot determine a URL to this page - cobble one together based on
+            # whatever we find in ALLOWED_HOSTS
+            try:
+                hostname = settings.ALLOWED_HOSTS[0]
+            except IndexError:
+                hostname = 'localhost'
+            path = '/'
+            port = 80
+
+        request = WSGIRequest({
+            'REQUEST_METHOD': 'GET',
+            'PATH_INFO': path,
+            'SERVER_NAME': hostname,
+            'SERVER_PORT': port,
+            'wsgi.input': StringIO(),
+        })
+
+        # Apply middleware to the request - see http://www.mellowmorning.com/2011/04/18/mock-django-request-for-testing/
+        handler = BaseHandler()
+        handler.load_middleware()
+        for middleware_method in handler._request_middleware:
+            if middleware_method(request):
+                raise Exception("Couldn't create request mock object - "
+                                "request middleware returned a response")
+        return request
+
+    def get_page_modes(self):
+        """
+        Return a list of (internal_name, display_name) tuples for the modes in which
+        this page can be displayed for preview/moderation purposes. Ordinarily a page
+        will only have one display mode, but subclasses of Page can override this -
+        for example, a page containing a form might have a default view of the form,
+        and a post-submission 'thankyou' page
+        """
+        return [('', 'Default')]
+
+    def show_as_mode(self, mode_name):
+        """
+        Given an internal name from the get_page_modes() list, return an HTTP response
+        indicative of the page being viewed in that mode. By default this passes a
+        dummy request into the serve() mechanism, ensuring that it matches the behaviour
+        on the front-end; subclasses that define additional page modes will need to
+        implement alternative logic to serve up the appropriate view here.
+        """
+        return self.serve(self.dummy_request())
+
+    def get_static_site_paths(self):
+        """
+        This is a generator of URL paths to feed into a static site generator
+        Override this if you would like to create static versions of subpages
+        """
+        # Yield paths for this page
+        yield '/'
+
+        # Yield paths for child pages
+        for child in self.get_children().live():
+            for path in child.specific.get_static_site_paths():
+                yield '/' + child.slug + path
+
     def get_ancestors(self, inclusive=False):
         return Page.objects.ancestor_of(self, inclusive)
 
@@ -567,24 +651,17 @@ class Page(MP_Node, ClusterableModel, Indexed):
     def get_siblings(self, inclusive=True):
         return Page.objects.sibling_of(self, inclusive)
 
+    def get_next_siblings(self, inclusive=False):
+        return self.get_siblings(inclusive).filter(path__gte=self.path).order_by('path')
+
+    def get_prev_siblings(self, inclusive=False):
+        return self.get_siblings(inclusive).filter(path__lte=self.path).order_by('-path')
+
 
 def get_navigation_menu_items():
     # Get all pages that appear in the navigation menu: ones which have children,
-    # or are a non-leaf type (indicating that they *could* have children),
     # or are at the top-level (this rule required so that an empty site out-of-the-box has a working menu)
-    navigable_content_type_ids = get_navigable_page_content_type_ids()
-    if navigable_content_type_ids:
-        pages = Page.objects.raw("""
-            SELECT * FROM wagtailcore_page
-            WHERE numchild > 0 OR content_type_id IN %s OR depth = 2
-            ORDER BY path
-        """, [tuple(navigable_content_type_ids)])
-    else:
-        pages = Page.objects.raw("""
-            SELECT * FROM wagtailcore_page
-            WHERE numchild > 0 OR depth = 2
-            ORDER BY path
-        """)
+    pages = Page.objects.filter(Q(depth=2)|Q(numchild__gt=0)).order_by('path')
 
     # Turn this into a tree structure:
     #     tree_node = (page, children)
@@ -632,8 +709,8 @@ class Orderable(models.Model):
 
 
 class SubmittedRevisionsManager(models.Manager):
-    def get_query_set(self):
-        return super(SubmittedRevisionsManager, self).get_query_set().filter(submitted_for_moderation=True)
+    def get_queryset(self):
+        return super(SubmittedRevisionsManager, self).get_queryset().filter(submitted_for_moderation=True)
 
 
 class PageRevision(models.Model):
@@ -679,6 +756,9 @@ class PageRevision(models.Model):
         page.save()
         self.submitted_for_moderation = False
         page.revisions.update(submitted_for_moderation=False)
+
+    def __unicode__(self):
+        return '"' + unicode(self.page) + '" at ' + unicode(self.created_at)
 
 PAGE_PERMISSION_TYPE_CHOICES = [
     ('add', 'Add'),
@@ -730,6 +810,63 @@ class UserPagePermissionsProxy(object):
         permission to perform specific tasks on the given page"""
         return PagePermissionTester(self, page)
 
+    def editable_pages(self):
+        """Return a queryset of the pages that this user has permission to edit"""
+        # Deal with the trivial cases first...
+        if not self.user.is_active:
+            return Page.objects.none()
+        if self.user.is_superuser:
+            return Page.objects.all()
+
+        editable_pages = Page.objects.none()
+
+        for perm in self.permissions.filter(permission_type='add'):
+            # user has edit permission on any subpage of perm.page
+            # (including perm.page itself) that is owned by them
+            editable_pages |= Page.objects.descendant_of(perm.page, inclusive=True).filter(owner=self.user)
+
+        for perm in self.permissions.filter(permission_type='edit'):
+            # user has edit permission on any subpage of perm.page
+            # (including perm.page itself) regardless of owner
+            editable_pages |= Page.objects.descendant_of(perm.page, inclusive=True)
+
+        return editable_pages
+
+
+    def can_edit_pages(self):
+        """Return True if the user has permission to edit any pages"""
+        return True if self.editable_pages().count() else False
+
+    def publishable_pages(self):
+        """Return a queryset of the pages that this user has permission to publish"""
+        # Deal with the trivial cases first...
+        if not self.user.is_active:
+            return Page.objects.none()
+        if self.user.is_superuser:
+            return Page.objects.all()
+
+        # Translate each of the user's permission rules into a Q-expression
+        q_expressions = []
+        for perm in self.permissions:
+            if perm.permission_type == 'publish':
+                # user has publish permission on any subpage of perm.page
+                # (including perm.page itself)
+                q_expressions.append(
+                    Q(path__startswith=perm.page.path)
+                )
+
+        if q_expressions:
+            all_rules = q_expressions[0]
+            for expr in q_expressions[1:]:
+                all_rules = all_rules | expr
+            return Page.objects.filter(all_rules)
+        else:
+            return Page.objects.none()
+
+    def can_publish_pages(self):
+        """Return True if the user has permission to publish any pages"""
+        return True if self.publishable_pages().count() else False
+
 
 class PagePermissionTester(object):
     def __init__(self, user_perms, page):
@@ -746,6 +883,8 @@ class PagePermissionTester(object):
 
     def can_add_subpage(self):
         if not self.user.is_active:
+            return False
+        if not self.page.specific_class.clean_subpage_types():  # this page model has an empty subpage_types list, so no subpages are allowed
             return False
         return self.user.is_superuser or ('add' in self.permissions)
 
@@ -801,9 +940,12 @@ class PagePermissionTester(object):
         """
         Niggly special case for creating and publishing a page in one go.
         Differs from can_publish in that we want to be able to publish subpages of root, but not
-        to be able to publish root itself
+        to be able to publish root itself. (Also, can_publish_subpage returns false if the page
+        does not allow subpages at all.)
         """
         if not self.user.is_active:
+            return False
+        if not self.page.specific_class.clean_subpage_types():  # this page model has an empty subpage_types list, so no subpages are allowed
             return False
 
         return self.user.is_superuser or ('publish' in self.permissions)

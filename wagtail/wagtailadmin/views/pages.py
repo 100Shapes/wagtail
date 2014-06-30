@@ -1,20 +1,18 @@
 from django.http import Http404, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.template.loader import render_to_string
-from django.template import RequestContext
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.decorators import permission_required
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.utils.translation import ugettext as _ 
+from django.utils.translation import ugettext as _
 from django.views.decorators.vary import vary_on_headers
 
 from wagtail.wagtailadmin.edit_handlers import TabbedInterface, ObjectList
 from wagtail.wagtailadmin.forms import SearchForm
-from wagtail.wagtailadmin import tasks, hooks
+from wagtail.wagtailadmin import tasks, hooks, signals
 
-from wagtail.wagtailcore.models import Page, PageRevision, get_page_types
+from wagtail.wagtailcore.models import Page, PageRevision
 
 
 @permission_required('wagtailadmin.access_admin')
@@ -27,13 +25,22 @@ def index(request, parent_page_id=None):
     pages = parent_page.get_children().prefetch_related('content_type')
 
     # Get page ordering
-    if 'ordering' in request.GET:
-        ordering = request.GET['ordering']
-
-        if ordering in ['title', '-title', 'content_type', '-content_type', 'live', '-live']:
-            pages = pages.order_by(ordering)
-    else:
+    ordering = request.GET.get('ordering', 'title')
+    if ordering not in ['title', '-title', 'content_type', '-content_type', 'live', '-live', 'ord']:
         ordering = 'title'
+
+    # Pagination
+    if ordering != 'ord':
+        pages = pages.order_by(ordering)
+
+        p = request.GET.get('p', 1)
+        paginator = Paginator(pages, 50)
+        try:
+            pages = paginator.page(p)
+        except PageNotAnInteger:
+            pages = paginator.page(1)
+        except EmptyPage:
+            pages = paginator.page(paginator.num_pages)
 
     return render(request, 'wagtailadmin/pages/index.html', {
         'parent_page': parent_page,
@@ -43,73 +50,23 @@ def index(request, parent_page_id=None):
 
 
 @permission_required('wagtailadmin.access_admin')
-def select_type(request):
-    # Get the list of page types that can be created within the pages that currently exist
-    existing_page_types = ContentType.objects.raw("""
-        SELECT DISTINCT content_type_id AS id FROM wagtailcore_page
-    """)
-
-    all_page_types = sorted(get_page_types(), key=lambda pagetype: pagetype.name.lower())
-    page_types = set()
-    for content_type in existing_page_types:
-        allowed_subpage_types = content_type.model_class().clean_subpage_types()
-        for subpage_type in allowed_subpage_types:
-            subpage_content_type = ContentType.objects.get_for_model(subpage_type)
-
-            page_types.add(subpage_content_type)
-
-    return render(request, 'wagtailadmin/pages/select_type.html', {
-        'page_types': page_types,
-        'all_page_types': all_page_types
-    })
-
-
-@permission_required('wagtailadmin.access_admin')
 def add_subpage(request, parent_page_id):
     parent_page = get_object_or_404(Page, id=parent_page_id).specific
     if not parent_page.permissions_for_user(request.user).can_add_subpage():
         raise PermissionDenied
 
-    page_types = sorted([ContentType.objects.get_for_model(model_class) for model_class in parent_page.clean_subpage_types()], key=lambda pagetype: pagetype.name.lower())
-    all_page_types = sorted(get_page_types(), key=lambda pagetype: pagetype.name.lower())
+    page_types = sorted(parent_page.clean_subpage_types(), key=lambda pagetype: pagetype.name.lower())
+
+    if len(page_types) == 1:
+        # Only one page type is available - redirect straight to the create form rather than
+        # making the user choose
+        content_type = page_types[0]
+        return redirect('wagtailadmin_pages_create', content_type.app_label, content_type.model, parent_page.id)
 
     return render(request, 'wagtailadmin/pages/add_subpage.html', {
         'parent_page': parent_page,
         'page_types': page_types,
-        'all_page_types': all_page_types,
     })
-
-
-@permission_required('wagtailadmin.access_admin')
-def select_location(request, content_type_app_name, content_type_model_name):
-    try:
-        content_type = ContentType.objects.get_by_natural_key(content_type_app_name, content_type_model_name)
-    except ContentType.DoesNotExist:
-        raise Http404
-
-    page_class = content_type.model_class()
-    # page_class must be a Page type and not some other random model
-    if not issubclass(page_class, Page):
-        raise Http404
-
-    # find all the valid locations (parent pages) where a page of the chosen type can be added
-    parent_pages = page_class.allowed_parent_pages()
-
-    if len(parent_pages) == 0:
-        # user cannot create a page of this type anywhere - fail with an error
-        messages.error(request, _("Sorry, you do not have access to create a page of type <em>'{0}'</em>.").format(content_type.name))
-        return redirect('wagtailadmin_pages_select_type')
-    elif len(parent_pages) == 1:
-        # only one possible location - redirect them straight there
-        messages.warning(request, _("Pages of this type can only be created as children of <em>'{0}'</em>. This new page will be saved there.").format(parent_pages[0].title))
-        return redirect('wagtailadmin_pages_create', content_type_app_name, content_type_model_name, parent_pages[0].id)
-    else:
-        # prompt them to select a location
-        return render(request, 'wagtailadmin/pages/select_location.html', {
-            'content_type': content_type,
-            'page_class': page_class,
-            'parent_pages': parent_pages,
-        })
 
 
 @permission_required('wagtailadmin.access_admin')
@@ -119,15 +76,30 @@ def content_type_use(request, content_type_app_name, content_type_model_name):
     except ContentType.DoesNotExist:
         raise Http404
 
+    p = request.GET.get("p", 1)
+
     page_class = content_type.model_class()
 
     # page_class must be a Page type and not some other random model
     if not issubclass(page_class, Page):
         raise Http404
 
+    pages = page_class.objects.all()
+
+    paginator = Paginator(pages, 10)
+
+    try:
+        pages = paginator.page(p)
+    except PageNotAnInteger:
+        pages = paginator.page(1)
+    except EmptyPage:
+        pages = paginator.page(paginator.num_pages)
+
     return render(request, 'wagtailadmin/pages/content_type_use.html', {
-        'pages': page_class.objects.all(),
+        'pages': pages,
+        'app_name': content_type_app_name,
         'content_type': content_type,
+        'page_class': page_class,
     })
 
 
@@ -143,15 +115,16 @@ def create(request, content_type_app_name, content_type_model_name, parent_page_
     except ContentType.DoesNotExist:
         raise Http404
 
+    # Get class
     page_class = content_type.model_class()
 
+    # Make sure the class is a descendant of Page
+    if not issubclass(page_class, Page):
+        raise Http404
+
     # page must be in the list of allowed subpage types for this parent ID
-    # == Restriction temporarily relaxed so that as superusers we can add index pages and things -
-    # == TODO: reinstate this for regular editors when we have distinct user types
-    #
-    # if page_class not in parent_page.clean_subpage_types():
-    #     messages.error(request, "Sorry, you do not have access to create a page of type '%s' here." % content_type.name)
-    #     return redirect('wagtailadmin_pages_select_type')
+    if content_type not in parent_page.clean_subpage_types():
+        raise PermissionDenied
 
     page = page_class(owner=request.user)
     edit_handler_class = get_page_edit_handler(page_class)
@@ -181,7 +154,7 @@ def create(request, content_type_app_name, content_type_model_name, parent_page_
                 page.live = False
                 page.has_unpublished_changes = True
 
-            parent_page.add_child(page)  # assign tree parameters - will cause page to be saved
+            parent_page.add_child(instance=page)  # assign tree parameters - will cause page to be saved
             page.save_revision(user=request.user, submitted_for_moderation=is_submitting)
 
             if is_publishing:
@@ -202,6 +175,7 @@ def create(request, content_type_app_name, content_type_model_name, parent_page_
             messages.error(request, _("The page could not be created due to errors."))
             edit_handler = edit_handler_class(instance=page, form=form)
     else:
+        signals.init_new_page.send(sender=create, page=page, parent=parent_page)
         form = form_class(instance=page)
         edit_handler = edit_handler_class(instance=page, form=form)
 
@@ -210,6 +184,8 @@ def create(request, content_type_app_name, content_type_model_name, parent_page_
         'page_class': page_class,
         'parent_page': parent_page,
         'edit_handler': edit_handler,
+        'display_modes': page.get_page_modes(),
+        'form': form, # Used in unit tests
     })
 
 
@@ -294,6 +270,8 @@ def edit(request, page_id):
         'page': page,
         'edit_handler': edit_handler,
         'errors_debug': errors_debug,
+        'display_modes': page.get_page_modes(),
+        'form': form, # Used in unit tests
     })
 
 
@@ -340,12 +318,19 @@ def preview_on_edit(request, page_id):
     if form.is_valid():
         form.save(commit=False)
 
-        # FIXME: passing the original request to page.serve is dodgy (particularly if page.serve has
-        # special treatment of POSTs). Ought to construct one that more or less matches what would be sent
-        # as a front-end GET request
+        # This view will generally be invoked as an AJAX request; as such, in the case of
+        # an error Django will return a plaintext response. This isn't what we want, since
+        # we will be writing the response back to an HTML page regardless of success or
+        # failure - as such, we strip out the X-Requested-With header to get Django to return
+        # an HTML error response
+        request.META.pop('HTTP_X_REQUESTED_WITH', None)
 
-        request.META.pop('HTTP_X_REQUESTED_WITH', None)  # Make this request appear to the page's serve method as a non-ajax one, as they will often implement custom behaviour for XHR
-        response = page.serve(request)
+        try:
+            display_mode = request.GET['mode']
+        except KeyError:
+            display_mode = page.get_page_modes()[0][0]
+
+        response = page.show_as_mode(display_mode)
 
         response['X-Wagtail-Preview'] = 'ok'
         return response
@@ -356,6 +341,7 @@ def preview_on_edit(request, page_id):
         response = render(request, 'wagtailadmin/pages/edit.html', {
             'page': page,
             'edit_handler': edit_handler,
+            'display_modes': page.get_page_modes(),
         })
         response['X-Wagtail-Preview'] = 'error'
         return response
@@ -380,10 +366,26 @@ def preview_on_create(request, content_type_app_name, content_type_model_name, p
     if form.is_valid():
         form.save(commit=False)
 
-        # FIXME: passing the original request to page.serve is dodgy (particularly if page.serve has
-        # special treatment of POSTs). Ought to construct one that more or less matches what would be sent
-        # as a front-end GET request
-        response = page.serve(request)
+        # ensure that our unsaved page instance has a suitable url set
+        parent_page = get_object_or_404(Page, id=parent_page_id).specific
+        page.set_url_path(parent_page)
+
+        # Set treebeard attributes
+        page.depth = parent_page.depth + 1
+        page.path = Page._get_children_path_interval(parent_page.path)[1]
+
+        # This view will generally be invoked as an AJAX request; as such, in the case of
+        # an error Django will return a plaintext response. This isn't what we want, since
+        # we will be writing the response back to an HTML page regardless of success or
+        # failure - as such, we strip out the X-Requested-With header to get Django to return
+        # an HTML error response
+        request.META.pop('HTTP_X_REQUESTED_WITH', None)
+
+        try:
+            display_mode = request.GET['mode']
+        except KeyError:
+            display_mode = page.get_page_modes()[0][0]
+        response = page.show_as_mode(display_mode)
 
         response['X-Wagtail-Preview'] = 'ok'
         return response
@@ -397,12 +399,13 @@ def preview_on_create(request, content_type_app_name, content_type_model_name, p
             'page_class': page_class,
             'parent_page': parent_page,
             'edit_handler': edit_handler,
+            'display_modes': page.get_page_modes(),
         })
         response['X-Wagtail-Preview'] = 'error'
         return response
 
 
-def preview_placeholder(request):
+def preview(request):
     """
     The HTML of a previewed page is written to the destination browser window using document.write.
     This overwrites any previous content in the window, while keeping its URL intact. This in turn
@@ -423,8 +426,13 @@ def preview_placeholder(request):
     Since we're going to this trouble, we'll also take the opportunity to display a spinner on the
     placeholder page, providing some much-needed visual feedback.
     """
-    return render(request, 'wagtailadmin/pages/preview_placeholder.html')
+    return render(request, 'wagtailadmin/pages/preview.html')
 
+def preview_loading(request):
+    """
+    This page is blank, but must be real HTML so its DOM can be written to once the preview of the page has rendered
+    """
+    return HttpResponse("<html><head><title></title></head><body></body></html>")
 
 @permission_required('wagtailadmin.access_admin')
 def unpublish(request, page_id):

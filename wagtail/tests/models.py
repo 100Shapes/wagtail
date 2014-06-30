@@ -1,10 +1,13 @@
 from django.db import models
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from modelcluster.fields import ParentalKey
 from wagtail.wagtailcore.models import Page, Orderable
 from wagtail.wagtailcore.fields import RichTextField
 from wagtail.wagtailadmin.edit_handlers import FieldPanel, MultiFieldPanel, InlinePanel, PageChooserPanel
 from wagtail.wagtailimages.edit_handlers import ImageChooserPanel
 from wagtail.wagtaildocs.edit_handlers import DocumentChooserPanel
+from wagtail.wagtailforms.models import AbstractEmailForm, AbstractFormField
+from wagtail.wagtailsnippets.models import register_snippet
 
 
 EVENT_AUDIENCE_CHOICES = (
@@ -187,12 +190,123 @@ class EventIndex(Page):
     intro = RichTextField(blank=True)
     ajax_template = 'tests/includes/event_listing.html'
 
-    def get_context(self, request):
+    def get_events(self):
+        return self.get_children().live().type(EventPage)
+
+    def get_paginator(self):
+        return Paginator(self.get_events(), 4)
+
+    def get_context(self, request, page=1):
+        # Pagination
+        paginator = self.get_paginator()
+        try:
+            events = paginator.page(page)
+        except PageNotAnInteger:
+            events = paginator.page(1)
+        except EmptyPage:
+            events = paginator.page(paginator.num_pages)
+
+        # Update context
         context = super(EventIndex, self).get_context(request)
-        context['events'] = EventPage.objects.filter(live=True)
+        context['events'] = events
         return context
+
+    def route(self, request, path_components):
+        if self.live and len(path_components) == 1:
+            try:
+                return self.serve(request, page=int(path_components[0]))
+            except (TypeError, ValueError):
+                pass
+
+        return super(EventIndex, self).route(request, path_components)
+
+    def get_static_site_paths(self):
+        # Get page count
+        page_count = self.get_paginator().num_pages
+
+        # Yield a path for each page
+        for page in range(page_count):
+            yield '/%d/' % (page + 1)
+
+        # Yield from superclass
+        for path in super(EventIndex, self).get_static_site_paths():
+            yield path
 
 EventIndex.content_panels = [
     FieldPanel('title', classname="full title"),
     FieldPanel('intro', classname="full"),
 ]
+
+
+class FormField(AbstractFormField):
+    page = ParentalKey('FormPage', related_name='form_fields')
+
+class FormPage(AbstractEmailForm):
+    pass
+
+FormPage.content_panels = [
+    FieldPanel('title', classname="full title"),
+    InlinePanel(FormPage, 'form_fields', label="Form fields"),
+    MultiFieldPanel([
+        FieldPanel('to_address', classname="full"),
+        FieldPanel('from_address', classname="full"),
+        FieldPanel('subject', classname="full"),
+    ], "Email")
+]
+
+
+# Snippets
+
+# Snippets
+
+class Advert(models.Model):
+    url = models.URLField(null=True, blank=True)
+    text = models.CharField(max_length=255)
+
+    panels = [
+        FieldPanel('url'),
+        FieldPanel('text'),
+    ]
+
+    def __unicode__(self):
+        return self.text
+
+
+register_snippet(Advert)
+
+
+# AlphaSnippet and ZuluSnippet are for testing ordering of
+# snippets when registering.  They are named as such to ensure
+# thier ordering is clear.  They are registered during testing
+# to ensure specific [in]correct register ordering
+
+# AlphaSnippet is registered during TestSnippetOrdering
+class AlphaSnippet(models.Model):
+    text = models.CharField(max_length=255)
+
+    def __unicode__(self):
+        return self.text
+
+
+# ZuluSnippet is registered during TestSnippetOrdering
+class ZuluSnippet(models.Model):
+    text = models.CharField(max_length=255)
+
+    def __unicode__(self):
+        return self.text
+
+
+class StandardIndex(Page):
+    pass
+
+class StandardChild(Page):
+    pass
+
+class BusinessIndex(Page):
+    subpage_types = ['tests.BusinessChild', 'tests.BusinessSubIndex']
+
+class BusinessSubIndex(Page):
+    subpage_types = ['tests.BusinessChild']
+
+class BusinessChild(Page):
+    subpage_types = []
