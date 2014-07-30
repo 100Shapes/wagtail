@@ -1,16 +1,10 @@
 from django import forms
-from django.db import models
 from django.shortcuts import render
 from django.utils.translation import ugettext as _
 from django.contrib import messages
 from django.contrib.auth.decorators import permission_required
 
-from wagtail.wagtailadmin.edit_handlers import PageChooserPanel
-from wagtail.wagtailimages.edit_handlers import ImageChooserPanel
-from wagtail.wagtaildocs.edit_handlers import DocumentChooserPanel
-
 from wagtail.wagtailadmin.forms import SearchForm
-from wagtail.wagtailcore.fields import RichTextField
 
 
 CHOICES = (
@@ -23,6 +17,7 @@ class ExampleForm(forms.Form):
     url = forms.URLField(required=True)
     email = forms.EmailField(max_length=254)
     date = forms.DateField()
+    time = forms.TimeField()
     select = forms.ChoiceField(choices=CHOICES)
     boolean = forms.BooleanField(required=False)
 
@@ -37,7 +32,20 @@ def index(request):
     messages.warning(request, _("Warning message"))
     messages.error(request, _("Error message"))
 
+    fake_pagination = {
+        'number': 1,
+        'previous_page_number': 1,
+        'next_page_number': 2,
+        'has_previous': True,
+        'has_next': True,
+        'paginator': {
+            'num_pages': 10,
+        },
+    }
+   
+
     return render(request, 'wagtailstyleguide/base.html', {
         'search_form': form,
         'example_form': example_form,
+        'fake_pagination': fake_pagination,
     })

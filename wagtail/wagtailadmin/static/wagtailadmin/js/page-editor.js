@@ -1,3 +1,5 @@
+"use strict";
+
 var halloPlugins = {
     'halloformat': {},
     'halloheadings': {formatBlocks: ["p", "h2", "h3"]},
@@ -7,6 +9,7 @@ var halloPlugins = {
     'hallowagtaillink': {},
     'hallohtml': {}
 };
+
 function registerHalloPlugin(name, opts) {
     halloPlugins[name] = (opts || {});
 }
@@ -31,7 +34,7 @@ function makeRichTextEditable(id) {
 
     richText.hallo({
         toolbar: 'halloToolbarFixed',
-        toolbarcssClass: 'testy',
+        toolbarCssClass: (input.closest('.object').hasClass('full')) ? 'full' : '',
         plugins: halloPlugins
     }).bind('hallomodified', function(event, data) {
         input.val(data.content);
@@ -58,6 +61,7 @@ function initDateChooser(id) {
     if (window.dateTimePickerTranslations) {
         $('#' + id).datetimepicker({
             timepicker: false,
+            scrollInput:false,
             format: 'Y-m-d',
             i18n: {
                 lang: window.dateTimePickerTranslations
@@ -67,6 +71,7 @@ function initDateChooser(id) {
     } else {
         $('#' + id).datetimepicker({
             timepicker: false,
+            scrollInput:false,
             format: 'Y-m-d',
         });
     }
@@ -76,6 +81,7 @@ function initTimeChooser(id) {
     if (window.dateTimePickerTranslations) {
         $('#' + id).datetimepicker({
             datepicker: false,
+            scrollInput:false,
             format: 'H:i',
             i18n: {
                 lang: window.dateTimePickerTranslations
@@ -93,15 +99,16 @@ function initTimeChooser(id) {
 function initDateTimeChooser(id) {
     if (window.dateTimePickerTranslations) {
         $('#' + id).datetimepicker({
-            format: 'Y-m-d H:i',
+            format: 'Y-m-d H:i:s',
+            scrollInput:false,
             i18n: {
                 lang: window.dateTimePickerTranslations
             },
             language: 'lang'
         });
     } else {
-    $('#' + id).datetimepicker({
-            format: 'Y-m-d H:i',
+        $('#' + id).datetimepicker({
+            format: 'Y-m-d H:i:s',
         });
     }
 }
@@ -198,7 +205,7 @@ function InlinePanel(opts) {
 
     self.updateMoveButtonDisabledStates = function() {
         if (opts.canOrder) {
-            forms = self.formsUl.children('li:visible');
+            var forms = self.formsUl.children('li:visible');
             forms.each(function(i) {
                 $('ul.controls .inline-child-move-up', this).toggleClass('disabled', i === 0).toggleClass('enabled', i !== 0);
                 $('ul.controls .inline-child-move-down', this).toggleClass('disabled', i === forms.length - 1).toggleClass('enabled', i != forms.length - 1);
@@ -241,7 +248,10 @@ function InlinePanel(opts) {
             }
             self.initChildControls(fixPrefix(opts.emptyChildFormPrefix));
             if (opts.canOrder) {
-                $(fixPrefix('#id_' + opts.emptyChildFormPrefix + '-ORDER')).val(formCount);
+                /* NB form hidden inputs use 0-based index and only increment formCount *after* this function is run.
+                Therefore formcount and order are currently equal and order must be incremented
+                to ensure it's *greater* than previous item */
+                $(fixPrefix('#id_' + opts.emptyChildFormPrefix + '-ORDER')).val(formCount + 1);
             }
             self.updateMoveButtonDisabledStates();
 
@@ -332,7 +342,7 @@ $(function() {
     /* Set up behaviour of preview button */
     $('.action-preview').click(function(e) {
         e.preventDefault();
-        $this = $(this);
+        var $this = $(this);
 
         var previewWindow = window.open($this.data('placeholder'), $this.data('windowname'));
         
