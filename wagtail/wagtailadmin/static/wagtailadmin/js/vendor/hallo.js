@@ -705,6 +705,7 @@
           return;
         }
         editor = this.element;
+        
         return editor.bind('paste', this, function(event) {
           var lastContent, lastRange, widget;
           if (rangy.saveSelection === void 0) {
@@ -719,7 +720,8 @@
           return setTimeout(function() {
             var cleanPasted, error, pasted, range;
             pasted = editor.html();
-            cleanPasted = jQuery.htmlClean(pasted, _this.options);
+            console.log(_this.options)
+            cleanPasted = jQuery.htmlClean(pasted, _this.options, );
             editor.html(lastContent);
             rangy.restoreSelection(lastRange);
             if (cleanPasted !== '') {
