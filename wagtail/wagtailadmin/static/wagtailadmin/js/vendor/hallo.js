@@ -720,8 +720,8 @@
           return setTimeout(function() {
             var cleanPasted, error, pasted, range;
             pasted = editor.html();
-            console.log(_this.options)
-            cleanPasted = jQuery.htmlClean(pasted, _this.options, );
+            console.log(_this.options);
+            cleanPasted = jQuery.htmlClean(pasted, _this.options);
             editor.html(lastContent);
             rangy.restoreSelection(lastRange);
             if (cleanPasted !== '') {
